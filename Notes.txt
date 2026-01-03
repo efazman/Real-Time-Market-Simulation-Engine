@@ -1,0 +1,16 @@
+12/30
+Stripped down old project down to just the matching engine
+I have to think of this conceptually, what are my goals?
+Ultimately I want to start from a very concrete and simple base and build from there
+but I am not sure what features or functions I am to implement
+
+Basically this is a trading simulator designed to help familiarize me with not only data structures
+but systems design and industry benchmarking practices
+So I must have input -> matching engine -> output, so I am thinking we can break this into some sort of FSM
+
+
+1/3
+I've fully implemented the AddOrder part of this matching engine. To do this i researched a lot about
+2 STL Functions/Objects: Visit and Variant.
+Variant: Basically just a container for different types
+Visit: Pick how to run code depending on what variable type we look at within variant
