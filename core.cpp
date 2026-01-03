@@ -12,6 +12,7 @@ Market::process(vector<Market::InputEvent> input)
 
     for (auto &event : input)
     {
+
         std::visit([&](auto &&e)
                    {
             using T = std::decay_t<decltype(e)>;
@@ -25,7 +26,6 @@ Market::process(vector<Market::InputEvent> input)
                 o.quantity   = e.quantity;
                 o.side       = e.side;
                 o.index      = index++;
-
                 auto& stock = s[o.stockID];
                 if (o.side == Side::Buy)
                     stock.buyerQueue.push(o);
@@ -39,9 +39,36 @@ Market::process(vector<Market::InputEvent> input)
                     e.ts,
                     e.side
                 });
-
+                storage[e.order_id] = o;
                 // matching happens here
                 match(o.stockID, outputs);
+            }
+
+            if constexpr (std::is_same_v<T, CancelOrder>){
+                if(storage.count(e.order_id)){
+                    storage[e.order_id].active = false;
+                }
+            } 
+
+            if constexpr (std::is_same_v<T, ModifyOrder>){
+                if(storage.count(e.order_id)){
+                    storage[e.order_id].active = false;
+                    Order old = storage[e.order_id];
+                old.timestamp  = e.ts;
+                old.priceLimit = e.new_price;
+                old.quantity   = e.new_quantity;
+                old.index      = index++;
+
+                auto& stock = s[old.stockID];
+                if (old.side == Side::Buy)
+                    stock.buyerQueue.push(old);
+                else
+                    stock.sellerQueue.push(old);
+
+                storage[e.order_id] = old;
+                match(old.stockID, outputs);
+                }
+
             } }, event);
     }
 
@@ -58,8 +85,17 @@ void Market::match(uint32_t stockID, vector<Market::OutputEvent> &outputs)
     while (!book.buyerQueue.empty() && !book.sellerQueue.empty())
     {
         Order buy = book.buyerQueue.top();
+        if (!buy.active)
+        {
+            book.buyerQueue.pop();
+            continue;
+        }
         Order sell = book.sellerQueue.top();
-
+        if (!sell.active)
+        {
+            book.sellerQueue.pop();
+            continue;
+        }
         if (buy.priceLimit < sell.priceLimit)
             break;
 

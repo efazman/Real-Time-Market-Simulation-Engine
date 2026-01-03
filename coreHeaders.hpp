@@ -4,7 +4,7 @@
 #include <queue>
 #include <cstdint>
 #include <variant>
-
+#include <unordered_map>
 using namespace std;
 class Market
 {
@@ -18,6 +18,7 @@ public:
     struct Order
     {
         uint32_t timestamp, traderID, stockID, priceLimit, quantity, index;
+        bool active = true;
         Side side;
     };
 
@@ -102,12 +103,13 @@ public:
         priority_queue<Market::Order, vector<Order>, CompareSell> sellerQueue;
     };
     vector<Stock> s;
+    unordered_map<uint32_t, Order> storage;
     //** MATCHING ENGINE (BOOK KEEPING) END */
 
 private:
 public:
     vector<OutputEvent> process(vector<InputEvent> input);
-    void match(uint32_t stockID, vector<Market::OutputEvent>& outputs);
+    void match(uint32_t stockID, vector<Market::OutputEvent> &outputs);
 };
 
 #endif
