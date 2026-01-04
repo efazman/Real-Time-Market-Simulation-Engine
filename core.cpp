@@ -7,6 +7,8 @@
 vector<Market::OutputEvent>
 Market::process(vector<Market::InputEvent> input)
 {
+    s.resize(100);
+
     vector<OutputEvent> outputs;
     uint32_t index = 0;
 
@@ -16,7 +18,6 @@ Market::process(vector<Market::InputEvent> input)
         std::visit([&](auto &&e)
                    {
             using T = std::decay_t<decltype(e)>;
-
             if constexpr (std::is_same_v<T, AddOrder>) {
                 Order o;
                 o.timestamp  = e.ts;
@@ -26,6 +27,7 @@ Market::process(vector<Market::InputEvent> input)
                 o.quantity   = e.quantity;
                 o.side       = e.side;
                 o.index      = index++;
+                o.order_id = e.order_id;
                 auto& stock = s[o.stockID];
                 if (o.side == Side::Buy)
                     stock.buyerQueue.push(o);
@@ -43,13 +45,11 @@ Market::process(vector<Market::InputEvent> input)
                 // matching happens here
                 match(o.stockID, outputs);
             }
-
             if constexpr (std::is_same_v<T, CancelOrder>){
                 if(storage.count(e.order_id)){
                     storage[e.order_id].active = false;
                 }
             } 
-
             if constexpr (std::is_same_v<T, ModifyOrder>){
                 if(storage.count(e.order_id)){
                     storage[e.order_id].active = false;
@@ -58,6 +58,8 @@ Market::process(vector<Market::InputEvent> input)
                 old.priceLimit = e.new_price;
                 old.quantity   = e.new_quantity;
                 old.index      = index++;
+                old.order_id = e.order_id;
+
 
                 auto& stock = s[old.stockID];
                 if (old.side == Side::Buy)
@@ -67,6 +69,13 @@ Market::process(vector<Market::InputEvent> input)
 
                 storage[e.order_id] = old;
                 match(old.stockID, outputs);
+                outputs.push_back(OrderAccepted{
+                    e.order_id,
+                    e.new_price,
+                    e.new_quantity,
+                    e.ts,
+                    old.side
+                });
                 }
 
             } }, event);
@@ -108,15 +117,22 @@ void Market::match(uint32_t stockID, vector<Market::OutputEvent> &outputs)
             (buy.index < sell.index) ? buy.priceLimit : sell.priceLimit;
 
         outputs.push_back(TradeExecuted{
-            buy.index,  // buyOrderID (replace later with real ID)
-            sell.index, // sellOrderID
+            buy.order_id,  // buyOrderID (replace later with real ID)
+            sell.order_id, // sellOrderID
             tradePrice,
             tradeQty,
             std::max(buy.timestamp, sell.timestamp),
             executionID++});
 
         buy.quantity -= tradeQty;
+        storage[buy.order_id].quantity -= tradeQty;
         sell.quantity -= tradeQty;
+        storage[sell.order_id].quantity -= tradeQty;
+
+        if (storage[sell.order_id].quantity == 0)
+            storage[sell.order_id].active = false;
+        if (storage[buy.order_id].quantity == 0)
+            storage[buy.order_id].active = false;
 
         if (buy.quantity > 0)
             book.buyerQueue.push(buy);

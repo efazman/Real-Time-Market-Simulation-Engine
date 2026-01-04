@@ -17,7 +17,7 @@ public:
     };
     struct Order
     {
-        uint32_t timestamp, traderID, stockID, priceLimit, quantity, index;
+        uint32_t timestamp, traderID, stockID, priceLimit, quantity, index, order_id;
         bool active = true;
         Side side;
     };
