@@ -47,12 +47,16 @@ Market::process(vector<Market::InputEvent> input)
             }
             if constexpr (std::is_same_v<T, CancelOrder>){
                 if(storage.count(e.order_id)){
-                    storage[e.order_id].active = false;
+                     auto stockID = storage[e.order_id].stockID;
+                     storage[e.order_id].active = false;
+                     match(stockID, outputs);
                 }
             } 
             if constexpr (std::is_same_v<T, ModifyOrder>){
                 if(storage.count(e.order_id)){
                     storage[e.order_id].active = false;
+                    storage[e.order_id].quantity = 0;
+
                     Order old = storage[e.order_id];
                 old.timestamp  = e.ts;
                 old.priceLimit = e.new_price;
@@ -68,7 +72,7 @@ Market::process(vector<Market::InputEvent> input)
                     stock.sellerQueue.push(old);
 
                 storage[e.order_id] = old;
-                match(old.stockID, outputs);
+                
                 outputs.push_back(OrderAccepted{
                     e.order_id,
                     e.new_price,
@@ -76,11 +80,16 @@ Market::process(vector<Market::InputEvent> input)
                     e.ts,
                     old.side
                 });
+                match(old.stockID, outputs);
                 }
 
             } }, event);
     }
 
+    for (uint32_t i = 0; i < s.size(); ++i)
+    {
+        match(i, outputs);
+    }
     return outputs;
 }
 
@@ -94,17 +103,18 @@ void Market::match(uint32_t stockID, vector<Market::OutputEvent> &outputs)
     while (!book.buyerQueue.empty() && !book.sellerQueue.empty())
     {
         Order buy = book.buyerQueue.top();
-        if (!buy.active)
+        if (!storage[buy.order_id].active)
         {
             book.buyerQueue.pop();
             continue;
         }
         Order sell = book.sellerQueue.top();
-        if (!sell.active)
+        if (!storage[sell.order_id].active)
         {
             book.sellerQueue.pop();
             continue;
         }
+
         if (buy.priceLimit < sell.priceLimit)
             break;
 
