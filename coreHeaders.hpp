@@ -9,6 +9,9 @@ using namespace std;
 class Market
 {
 public:
+    bool timing_enabled = false;
+    std::vector<uint64_t> match_step_ns; // each iteration of the while-loop
+
     //** DEFINING INPUTS AND OUTPUTS FOR ENGINE ITSELF BEGIN */
     enum class Side : uint8_t
     {

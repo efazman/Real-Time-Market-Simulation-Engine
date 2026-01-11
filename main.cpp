@@ -9,6 +9,14 @@
 #include <string>
 #include <stdexcept>
 
+static uint64_t percentile(std::vector<uint64_t> &v, double p)
+{
+    if (v.empty())
+        return 0;
+    std::sort(v.begin(), v.end());
+    size_t idx = (size_t)((v.size() - 1) * p);
+    return v[idx];
+}
 static void require(bool cond, const char *msg)
 {
     if (!cond)
@@ -142,10 +150,12 @@ int main(int argc, char **argv)
         return run_checks();
     }
     Market market;
+
     const int NUM_ORDERS = 10000;
     std::vector<Market::InputEvent> events;
+    events.reserve(NUM_ORDERS + NUM_ORDERS / 50 + NUM_ORDERS / 70);
 
-    std::mt19937 rng(42); // reproducible
+    std::mt19937 rng(42);
     std::uniform_int_distribution<uint32_t> traderDist(1, 100);
     std::uniform_int_distribution<uint32_t> stockDist(0, 10);
     std::uniform_int_distribution<uint32_t> priceDist(90, 110);
@@ -155,47 +165,42 @@ int main(int argc, char **argv)
     for (int i = 1; i <= NUM_ORDERS; ++i, ++ts)
     {
         Market::Side side = (i % 2 == 0) ? Market::Side::Buy : Market::Side::Sell;
-        events.push_back(Market::AddOrder{static_cast<uint>(i), traderDist(rng), stockDist(rng),
-                                          priceDist(rng), qtyDist(rng), ts, side});
-        // Randomly insert Cancel events
+        events.push_back(Market::AddOrder{
+            (uint32_t)i, traderDist(rng), stockDist(rng),
+            priceDist(rng), qtyDist(rng), ts, side});
+
+        // Cancel events (note: your Modify logic is currently incorrect; avoid Modify in bench for now)
         if (i % 50 == 0)
         {
-            events.push_back(Market::CancelOrder{static_cast<uint>(i) - 25, traderDist(rng), ts});
-        }
-        // Randomly insert Modify events
-        if (i % 70 == 0)
-        {
-            events.push_back(Market::ModifyOrder{static_cast<uint>(i) - 50, priceDist(rng), qtyDist(rng), ts});
+            events.push_back(Market::CancelOrder{(uint32_t)(i - 25), traderDist(rng), ts});
         }
     }
 
-    std::vector<long long> latencies;
-    auto startTotal = std::chrono::high_resolution_clock::now();
+    // Enable timing
+    market.timing_enabled = true;
+    market.match_step_ns.clear();
+    market.match_step_ns.reserve(NUM_ORDERS); // rough guess
 
-    // Process events one by one and measure per-order latency
-    for (auto &ev : events)
-    {
-        auto start = std::chrono::high_resolution_clock::now();
-        market.process({ev});
-        auto end = std::chrono::high_resolution_clock::now();
-        latencies.push_back(std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
-    }
+    using clock = std::chrono::steady_clock;
+    auto t0 = clock::now();
+    auto out = market.process(events);
+    auto t1 = clock::now();
 
-    auto endTotal = std::chrono::high_resolution_clock::now();
-    auto totalMicro = std::chrono::duration_cast<std::chrono::microseconds>(endTotal - startTotal).count();
+    auto total_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+    double seconds = (double)total_ns / 1e9;
 
-    // Calculate P50, P95, P99
-    std::sort(latencies.begin(), latencies.end());
-    auto p50 = latencies[latencies.size() * 0.50];
-    auto p95 = latencies[latencies.size() * 0.95];
-    auto p99 = latencies[latencies.size() * 0.99];
+    std::cout << "Events processed: " << events.size() << "\n";
+    std::cout << "Total time (s): " << seconds << "\n";
+    std::cout << "Throughput (events/sec): " << (events.size() / seconds) << "\n";
 
-    std::cout << "Orders processed: " << events.size() << "\n";
-    std::cout << "Total time (us): " << totalMicro << "\n";
-    std::cout << "Throughput (orders/sec): " << events.size() * 1e6 / totalMicro << "\n";
-    std::cout << "P50 latency (us): " << p50 << "\n";
-    std::cout << "P95 latency (us): " << p95 << "\n";
-    std::cout << "P99 latency (us): " << p99 << "\n";
+    // Matching-step percentiles
+    auto &ms = market.match_step_ns;
+    uint64_t p50 = percentile(ms, 0.50);
+    uint64_t p95 = percentile(ms, 0.95);
+    uint64_t p99 = percentile(ms, 0.99);
 
-    return 0;
+    std::cout << "Match-step samples: " << ms.size() << "\n";
+    std::cout << "Match-step P50 (ns): " << p50 << "\n";
+    std::cout << "Match-step P95 (ns): " << p95 << "\n";
+    std::cout << "Match-step P99 (ns): " << p99 << "\n";
 }

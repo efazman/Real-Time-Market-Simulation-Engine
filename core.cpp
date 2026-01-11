@@ -95,19 +95,22 @@ Market::process(vector<Market::InputEvent> input)
 
 void Market::match(uint32_t stockID, vector<Market::OutputEvent> &outputs)
 {
-
     auto &book = s[stockID];
-
     static uint32_t executionID = 0;
+
+    using clock = std::chrono::steady_clock;
 
     while (!book.buyerQueue.empty() && !book.sellerQueue.empty())
     {
+        auto t0 = clock::now();
+
         Order buy = book.buyerQueue.top();
         if (!storage[buy.order_id].active)
         {
             book.buyerQueue.pop();
             continue;
         }
+
         Order sell = book.sellerQueue.top();
         if (!storage[sell.order_id].active)
         {
@@ -122,13 +125,11 @@ void Market::match(uint32_t stockID, vector<Market::OutputEvent> &outputs)
         book.sellerQueue.pop();
 
         uint32_t tradeQty = std::min(buy.quantity, sell.quantity);
-
-        uint32_t tradePrice =
-            (buy.index < sell.index) ? buy.priceLimit : sell.priceLimit;
+        uint32_t tradePrice = (buy.index < sell.index) ? buy.priceLimit : sell.priceLimit;
 
         outputs.push_back(TradeExecuted{
-            buy.order_id,  // buyOrderID (replace later with real ID)
-            sell.order_id, // sellOrderID
+            buy.order_id,
+            sell.order_id,
             tradePrice,
             tradeQty,
             std::max(buy.timestamp, sell.timestamp),
@@ -146,8 +147,14 @@ void Market::match(uint32_t stockID, vector<Market::OutputEvent> &outputs)
 
         if (buy.quantity > 0)
             book.buyerQueue.push(buy);
-
         if (sell.quantity > 0)
             book.sellerQueue.push(sell);
+
+        if (timing_enabled)
+        {
+            auto t1 = clock::now();
+            match_step_ns.push_back(
+                (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+        }
     }
 }
